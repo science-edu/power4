@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>여러가지 힘 짝맞추기 게임 (8장)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Noto+Sans+KR:wght@300;400;600;700&display=swap');
+
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background: radial-gradient(ellipse at top, #1e293b 0%, #020617 100%);
+            min-height: 100vh;
+            color: #ffffff;
+            overflow-x: hidden;
+        }
+
+        .title-font {
+            font-family: 'Orbitron', 'Noto Sans KR', sans-serif;
+        }
+
+        /* 3D Card Flip Animation */
+        .card-container {
+            perspective: 1000px;
+        }
+
+        .card-inner {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            text-align: center;
+            transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            transform-style: preserve-3d;
+            cursor: pointer;
+        }
+
+        .card-container.flipped .card-inner {
+            transform: rotateY(180deg);
+        }
+
+        .card-front, .card-back {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            -webkit-backface-visibility: hidden;
+            backface-visibility: hidden;
+            border-radius: 1rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 0.75rem;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.6);
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(8px);
+        }
+
+        .card-front {
+            background: linear-gradient(135deg, #334155 0%, #0f172a 100%);
+        }
+
+        .card-front:hover {
+            border-color: #2dd4bf; 
+            box-shadow: 0 0 15px rgba(45, 212, 191, 0.4);
+        }
+
+        .card-back {
+            background: linear-gradient(145deg, #0f172a 0%, #115e59 100%);
+            transform: rotateY(180deg);
+        }
+        
+        .card-back.desc-card {
+            background: linear-gradient(145deg, #1e293b 0%, #0f172a 100%);
+        }
+
+        .card-container.matched .card-back {
+            border-color: #34d399; 
+            box-shadow: 0 0 20px rgba(52, 211, 153, 0.7);
+            animation: pulse-glow 2s infinite alternate;
+        }
+
+        @keyframes pulse-glow {
+            0% { box-shadow: 0 0 10px rgba(52, 211, 153, 0.4); }
+            100% { box-shadow: 0 0 25px rgba(52, 211, 153, 0.9); }
+        }
+
+        /* Canvas background for animated particles */
+        #physics-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        /* Card color classes - 4 Forces */
+        .color-gravity { color: #a78bfa; text-shadow: 0 0 12px rgba(167, 139, 250, 0.6); }
+        .color-elastic { color: #f472b6; text-shadow: 0 0 12px rgba(244, 114, 182, 0.6); }
+        .color-friction { color: #fb923c; text-shadow: 0 0 12px rgba(251, 146, 60, 0.6); }
+        .color-buoyancy { color: #38bdf8; text-shadow: 0 0 12px rgba(56, 189, 248, 0.6); }
+
+    </style>
+</head>
+<body class="flex flex-col min-h-screen">
+
+    <canvas id="physics-bg"></canvas>
+
+    <header class="py-4 px-4 sm:px-6 bg-slate-900/80 backdrop-blur-md border-b border-slate-800 sticky top-0 z-20">
+        <div class="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <i class="fa-solid fa-atom text-3xl sm:text-4xl text-teal-400 animate-[spin_4s_linear_infinite]"></i>
+                <div>
+                    <h1 class="text-xl sm:text-2xl font-bold title-font bg-clip-text text-transparent bg-gradient-to-r from-teal-400 via-emerald-300 to-cyan-400">
+                        여러가지 힘 짝맞추기
+                    </h1>
+                    <p class="text-xs text-slate-400">총 8장 (4쌍) · 힘의 이름과 그에 맞는 설명을 짝지어보세요!</p>
+                </div>
+            </div>
+
+            <!-- Stats Bar & Quick Controls -->
+            <div class="flex items-center gap-3 bg-slate-950/80 px-4 py-2 rounded-full border border-slate-700 text-sm flex-wrap justify-center shadow-lg">
+                <div class="flex items-center gap-1.5">
+                    <i class="fa-regular fa-clock text-teal-400"></i>
+                    <span id="timer-display" class="font-mono text-base font-semibold text-teal-300">00:00</span>
+                </div>
+                <div class="h-4 w-[1px] bg-slate-700"></div>
+                <div class="flex items-center gap-1.5">
+                    <i class="fa-solid fa-arrows-rotate text-emerald-400"></i>
+                    <span class="text-slate-400">시도:</span>
+                    <span id="moves-display" class="font-bold text-emerald-300">0</span>
+                </div>
+                <div class="h-4 w-[1px] bg-slate-700"></div>
+                <div class="flex items-center gap-1.5">
+                    <i class="fa-solid fa-magnet text-amber-400"></i>
+                    <span class="text-slate-400">매칭:</span>
+                    <span id="score-display" class="font-bold text-amber-300">0 / 4</span>
+                </div>
+                
+                <button id="share-qr-btn" class="ml-1 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-full text-xs transition duration-200 shadow-md shadow-indigo-900/50 flex items-center gap-1.5">
+                    <i class="fa-solid fa-qrcode"></i> QR 공유
+                </button>
+                <button id="restart-btn" class="px-3 py-1.5 bg-teal-600 hover:bg-teal-500 text-white font-medium rounded-full text-xs transition duration-200 shadow-md shadow-teal-900/50 flex items-center gap-1.5">
+                    <i class="fa-solid fa-rotate-right"></i> 다시 시작
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-grow flex flex-col items-center justify-center p-4 md:p-8 max-w-4xl mx-auto w-full">
+        <!-- Grid layout: 2 columns on mobile, 4 columns on larger screens -->
+        <div id="game-grid" class="grid grid-cols-2 sm:grid-cols-4 gap-4 w-full my-auto p-5 bg-slate-900/50 backdrop-blur-md rounded-3xl border border-slate-700 shadow-2xl">
+            <!-- 8 Cards will be dynamically injected here by JS -->
+        </div>
+    </main>
+
+    <footer class="bg-slate-950/90 border-t border-slate-800 py-4 px-4 text-xs">
+        <div class="max-w-6xl mx-auto">
+            <div class="font-semibold text-teal-400 flex items-center gap-2 mb-3 justify-center">
+                <i class="fa-solid fa-book-open"></i> 여러가지 힘과 설명 가이드
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-slate-300 max-w-4xl mx-auto">
+                <div class="flex flex-col p-3 bg-slate-900 rounded-xl border border-slate-800 text-center">
+                    <span class="font-bold text-purple-400 mb-1 text-sm"><i class="fa-solid fa-earth-americas"></i> 중력</span>
+                    <span class="text-slate-400 break-keep">천체가 당기는 힘</span>
+                </div>
+                <div class="flex flex-col p-3 bg-slate-900 rounded-xl border border-slate-800 text-center">
+                    <span class="font-bold text-sky-400 mb-1 text-sm"><i class="fa-solid fa-water"></i> 부력</span>
+                    <span class="text-slate-400 break-keep">액체나 기체가 밀어올리는 힘</span>
+                </div>
+                <div class="flex flex-col p-3 bg-slate-900 rounded-xl border border-slate-800 text-center">
+                    <span class="font-bold text-pink-400 mb-1 text-sm"><i class="fa-solid fa-arrows-left-right-to-line"></i> 탄성력</span>
+                    <span class="text-slate-400 break-keep">변형된 탄성체가 회복되려는 힘</span>
+                </div>
+                <div class="flex flex-col p-3 bg-slate-900 rounded-xl border border-slate-800 text-center">
+                    <span class="font-bold text-orange-400 mb-1 text-sm"><i class="fa-solid fa-shoe-prints"></i> 마찰력</span>
+                    <span class="text-slate-400 break-keep">미끄러짐을 방해하는 힘</span>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- QR Modal -->
+    <div id="qr-modal" class="fixed inset-0 bg-black/80 backdrop-blur-lg z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-gradient-to-b from-slate-800 to-slate-950 border border-slate-700 p-6 sm:p-8 rounded-3xl max-w-sm w-full text-center shadow-2xl relative">
+            <h3 class="text-xl font-bold title-font text-white mb-2"><i class="fa-solid fa-qrcode text-indigo-400"></i> 학생 입장용 QR 코드</h3>
+            <p class="text-xs text-slate-300 mb-4">스마트폰 카메라로 스캔하여 게임에 바로 접속할 수 있습니다.</p>
+            
+            <div class="bg-white p-4 rounded-2xl inline-block mx-auto mb-4 shadow-inner" id="qrcode-container"></div>
+            
+            <div class="text-xs text-slate-400 bg-slate-900 p-2.5 rounded-xl border border-slate-800 mb-5 break-all font-mono select-all" id="current-url-text">
+                URL Loading...
+            </div>
+
+            <div class="flex gap-2">
+                <button id="copy-url-btn" class="flex-1 py-2.5 bg-slate-700 hover:bg-slate-600 text-white rounded-xl text-xs font-bold transition duration-200 flex items-center justify-center gap-1">
+                    <i class="fa-regular fa-copy"></i> 주소 복사
+                </button>
+                <button id="close-qr-btn" class="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition duration-200">
+                    닫기
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Victory Modal -->
+    <div id="victory-modal" class="fixed inset-0 bg-black/80 backdrop-blur-lg z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-gradient-to-b from-slate-800 to-slate-950 border border-slate-700 p-8 rounded-3xl max-w-md w-full text-center shadow-2xl relative overflow-hidden">
+            <div class="w-20 h-20 bg-gradient-to-tr from-teal-400 to-emerald-200 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg shadow-teal-500/30 animate-pulse">
+                <i class="fa-solid fa-flask text-4xl text-slate-950"></i>
+            </div>
+
+            <h2 class="text-3xl font-extrabold text-white mb-2 title-font">탐구 완료!</h2>
+            <p class="text-slate-300 mb-6 text-sm">4가지 힘과 설명을 모두 올바르게 짝지었습니다!</p>
+
+            <div class="bg-slate-900/80 rounded-2xl p-4 mb-6 border border-slate-800 grid grid-cols-2 gap-4 text-left">
+                <div>
+                    <span class="text-xs text-slate-400 block">소요 시간</span>
+                    <span id="final-time" class="text-xl font-mono font-bold text-teal-300">00:00</span>
+                </div>
+                <div>
+                    <span class="text-xs text-slate-400 block">총 시도 횟수</span>
+                    <span id="final-moves" class="text-xl font-mono font-bold text-emerald-300">0회</span>
+                </div>
+            </div>
+
+            <button id="modal-restart-btn" class="w-full py-3.5 bg-gradient-to-r from-teal-500 to-cyan-600 hover:from-teal-400 hover:to-cyan-500 text-white font-bold rounded-xl shadow-lg shadow-teal-500/25 transition duration-200 flex items-center justify-center gap-2">
+                <i class="fa-solid fa-arrows-rotate"></i> 다시 도전하기
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // Data containing Name and Definition for matching
+        const FORCES = [
+            { id: 'gravity', name: '중력', desc: '천체가 당기는 힘', icon: 'fa-earth-americas', colorClass: 'color-gravity' },
+            { id: 'buoyancy', name: '부력', desc: '액체나 기체가 밀어올리는 힘', icon: 'fa-water', colorClass: 'color-buoyancy' },
+            { id: 'elasticity', name: '탄성력', desc: '변형된 탄성체가 회복되려는 힘', icon: 'fa-arrows-left-right-to-line', colorClass: 'color-elastic' },
+            { id: 'friction', name: '마찰력', desc: '미끄러짐을 방해하는 힘', icon: 'fa-shoe-prints', colorClass: 'color-friction' }
+        ];
+
+        let cards = [];
+        let flippedCards = [];
+        let matchedCount = 0;
+        let moves = 0;
+        let timerInterval = null;
+        let secondsElapsed = 0;
+        let isBoardLocked = false;
+        let gameStarted = false;
+        
+        const TOTAL_PAIRS = 4;
+
+        const gameGrid = document.getElementById('game-grid');
+        const timerDisplay = document.getElementById('timer-display');
+        const movesDisplay = document.getElementById('moves-display');
+        const scoreDisplay = document.getElementById('score-display');
+        const restartBtn = document.getElementById('restart-btn');
+        const shareQrBtn = document.getElementById('share-qr-btn');
+        const qrModal = document.getElementById('qr-modal');
+        const closeQrBtn = document.getElementById('close-qr-btn');
+        const copyUrlBtn = document.getElementById('copy-url-btn');
+        const currentUrlText = document.getElementById('current-url-text');
+        const victoryModal = document.getElementById('victory-modal');
+        const finalTime = document.getElementById('final-time');
+        const finalMoves = document.getElementById('final-moves');
+        const modalRestartBtn = document.getElementById('modal-restart-btn');
+
+        // Physics Particle Network Background
+        function initPhysicsBackground() {
+            const canvas = document.getElementById('physics-bg');
+            const ctx = canvas.getContext('2d');
+            let particles = [];
+
+            function resize() {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+                particles = [];
+                const numParticles = Math.floor((canvas.width * canvas.height) / 15000);
+                for (let i = 0; i < numParticles; i++) {
+                    particles.push({
+                        x: Math.random() * canvas.width,
+                        y: Math.random() * canvas.height,
+                        vx: (Math.random() - 0.5) * 0.5,
+                        vy: (Math.random() - 0.5) * 0.5,
+                        radius: Math.random() * 2 + 1
+                    });
+                }
+            }
+
+            function animate() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                
+                for (let i = 0; i < particles.length; i++) {
+                    let p = particles[i];
+                    p.x += p.vx;
+                    p.y += p.vy;
+
+                    if (p.x < 0 || p.x > canvas.width) p.vx *= -1;
+                    if (p.y < 0 || p.y > canvas.height) p.vy *= -1;
+
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                    ctx.fillStyle = 'rgba(45, 212, 191, 0.4)';
+                    ctx.fill();
+
+                    for (let j = i + 1; j < particles.length; j++) {
+                        let p2 = particles[j];
+                        let dx = p.x - p2.x;
+                        let dy = p.y - p2.y;
+                        let dist = Math.sqrt(dx * dx + dy * dy);
+
+                        if (dist < 120) {
+                            ctx.beginPath();
+                            ctx.moveTo(p.x, p.y);
+                            ctx.lineTo(p2.x, p2.y);
+                            ctx.strokeStyle = `rgba(45, 212, 191, ${0.2 - dist/600})`;
+                            ctx.lineWidth = 1;
+                            ctx.stroke();
+                        }
+                    }
+                }
+                requestAnimationFrame(animate);
+            }
+
+            window.addEventListener('resize', resize);
+            resize();
+            animate();
+        }
+
+        // Create 8 Cards Deck (Asymmetric: Name and Description)
+        function createDeck() {
+            let deck = [];
+            FORCES.forEach((force) => {
+                // Name Card
+                deck.push({ 
+                    type: 'name', 
+                    matchId: force.id, 
+                    text: force.name, 
+                    icon: force.icon, 
+                    colorClass: force.colorClass 
+                });
+                // Definition Card
+                deck.push({ 
+                    type: 'desc', 
+                    matchId: force.id, 
+                    text: force.desc, 
+                    icon: 'fa-book', 
+                    colorClass: force.colorClass 
+                });
+            });
+
+            // Fisher-Yates Shuffle
+            for (let i = deck.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [deck[i], deck[j]] = [deck[j], deck[i]];
+            }
+            return deck;
+        }
+
+        function startTimer() {
+            if (timerInterval) clearInterval(timerInterval);
+            secondsElapsed = 0;
+            timerDisplay.textContent = "00:00";
+            timerInterval = setInterval(() => {
+                secondsElapsed++;
+                const mins = String(Math.floor(secondsElapsed / 60)).padStart(2, '0');
+                const secs = String(secondsElapsed % 60).padStart(2, '0');
+                timerDisplay.textContent = `${mins}:${secs}`;
+            }, 1000);
+        }
+
+        function stopTimer() {
+            if (timerInterval) clearInterval(timerInterval);
+        }
+
+        function initGame() {
+            stopTimer();
+            cards = createDeck();
+            flippedCards = [];
+            matchedCount = 0;
+            moves = 0;
+            gameStarted = false;
+            isBoardLocked = false;
+
+            movesDisplay.textContent = "0";
+            scoreDisplay.textContent = `0 / ${TOTAL_PAIRS}`;
+            timerDisplay.textContent = "00:00";
+            victoryModal.classList.add('hidden');
+
+            renderGrid();
+        }
+
+        function renderGrid() {
+            gameGrid.innerHTML = '';
+            cards.forEach((card, index) => {
+                const cardEl = document.createElement('div');
+                cardEl.className = 'card-container aspect-[3/4] w-full max-h-[220px] mx-auto';
+                cardEl.dataset.index = index;
+
+                let cardBackHtml = '';
+                let backClass = 'card-back';
+                
+                if (card.type === 'name') {
+                    cardBackHtml = `
+                        <i class="fa-solid ${card.icon} ${card.colorClass} text-3xl sm:text-5xl mb-2 sm:mb-3"></i>
+                        <span class="font-black text-lg sm:text-2xl ${card.colorClass}">${card.text}</span>
+                    `;
+                } else {
+                    backClass += ' desc-card';
+                    cardBackHtml = `
+                        <div class="flex flex-col items-center justify-center h-full px-2 w-full text-center">
+                            <span class="font-medium text-sm sm:text-base text-slate-200 drop-shadow-md break-keep leading-relaxed">${card.text}</span>
+                        </div>
+                    `;
+                }
+
+                cardEl.innerHTML = `
+                    <div class="card-inner">
+                        <div class="card-front">
+                            <i class="fa-solid fa-atom text-slate-500 text-3xl sm:text-4xl opacity-50 mb-2"></i>
+                            <span class="text-xs text-slate-400 font-bold tracking-widest">FORCE</span>
+                        </div>
+                        <div class="${backClass}">
+                            ${cardBackHtml}
+                        </div>
+                    </div>
+                `;
+
+                cardEl.addEventListener('click', () => handleCardClick(cardEl, index));
+                gameGrid.appendChild(cardEl);
+            });
+        }
+
+        function handleCardClick(cardEl, index) {
+            if (isBoardLocked) return;
+            if (cardEl.classList.contains('flipped') || cardEl.classList.contains('matched')) return;
+
+            if (!gameStarted) {
+                gameStarted = true;
+                startTimer();
+            }
+
+            cardEl.classList.add('flipped');
+            flippedCards.push({ element: cardEl, data: cards[index] });
+
+            if (flippedCards.length === 2) {
+                moves++;
+                movesDisplay.textContent = moves;
+                checkMatch();
+            }
+        }
+
+        function checkMatch() {
+            isBoardLocked = true;
+            const [card1, card2] = flippedCards;
+
+            // Matching Logic: They must have the same matchId
+            if (card1.data.matchId === card2.data.matchId) {
+                setTimeout(() => {
+                    card1.element.classList.add('matched');
+                    card2.element.classList.add('matched');
+                    matchedCount++;
+                    scoreDisplay.textContent = `${matchedCount} / ${TOTAL_PAIRS}`;
+                    flippedCards = [];
+                    isBoardLocked = false;
+
+                    if (matchedCount === TOTAL_PAIRS) {
+                        handleVictory();
+                    }
+                }, 400);
+            } else {
+                setTimeout(() => {
+                    card1.element.classList.remove('flipped');
+                    card2.element.classList.remove('flipped');
+                    flippedCards = [];
+                    isBoardLocked = false;
+                }, 1000);
+            }
+        }
+
+        function handleVictory() {
+            stopTimer();
+            finalTime.textContent = timerDisplay.textContent;
+            finalMoves.textContent = `${moves}회`;
+            setTimeout(() => {
+                victoryModal.classList.remove('hidden');
+            }, 600);
+        }
+
+        // Setup QR Code Modal
+        function setupQRModal() {
+            const currentUrl = window.location.href;
+            currentUrlText.textContent = currentUrl;
+            
+            const qrContainer = document.getElementById('qrcode-container');
+            qrContainer.innerHTML = '';
+            new QRCode(qrContainer, {
+                text: currentUrl,
+                width: 160,
+                height: 160,
+                colorDark: "#020617",
+                colorLight: "#ffffff",
+                correctLevel: QRCode.CorrectLevel.H
+            });
+        }
+
+        shareQrBtn.addEventListener('click', () => {
+            setupQRModal();
+            qrModal.classList.remove('hidden');
+        });
+
+        closeQrBtn.addEventListener('click', () => {
+            qrModal.classList.add('hidden');
+        });
+
+        copyUrlBtn.addEventListener('click', () => {
+            const currentUrl = window.location.href;
+            const textArea = document.createElement("textarea");
+            textArea.value = currentUrl;
+            document.body.appendChild(textArea);
+            textArea.select();
+            try {
+                document.execCommand('copy');
+                copyUrlBtn.innerHTML = '<i class="fa-solid fa-check text-emerald-300"></i> 복사 완료!';
+                setTimeout(() => {
+                    copyUrlBtn.innerHTML = '<i class="fa-regular fa-copy"></i> 주소 복사';
+                }, 2000);
+            } catch (err) {
+                copyUrlBtn.innerHTML = '<i class="fa-solid fa-xmark text-red-300"></i> 복사 실패';
+                setTimeout(() => {
+                    copyUrlBtn.innerHTML = '<i class="fa-regular fa-copy"></i> 주소 복사';
+                }, 2000);
+            }
+            document.body.removeChild(textArea);
+        });
+
+        restartBtn.addEventListener('click', initGame);
+        modalRestartBtn.addEventListener('click', initGame);
+
+        window.onload = function() {
+            initPhysicsBackground();
+            initGame();
+        };
+    </script>
+</body>
+</html>
